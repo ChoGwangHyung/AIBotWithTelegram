@@ -2,6 +2,14 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { exec, spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+
+// ===== PID 파일 관리 =====
+const PID_FILE = path.join(__dirname, 'bot.pid');
+fs.writeFileSync(PID_FILE, process.pid.toString(), 'utf8');
+process.on('exit',   () => { try { fs.unlinkSync(PID_FILE); } catch (_) {} });
+process.on('SIGINT',  () => process.exit(0));
+process.on('SIGTERM', () => process.exit(0));
 
 // ===== ENV =====
 const token            = process.env.TELEGRAM_BOT_TOKEN;
