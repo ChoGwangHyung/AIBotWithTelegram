@@ -15,7 +15,8 @@ process.on('SIGTERM', () => process.exit(0));
 const token            = process.env.TELEGRAM_BOT_TOKEN;
 const authorizedChatId = process.env.AUTHORIZED_CHAT_ID;
 const AI_PRIORITY      = (process.env.AI_PRIORITY || 'claude,gemini').split(',').map(s => s.trim().toLowerCase());
-const CLAUDE_RETRY_DELAY_MS = parseInt(process.env.PRIORITY_RETRY_DELAY_MINUTES || '60', 10) * 60 * 1000;
+const CLAUDE_RETRY_DELAY_MS  = parseInt(process.env.PRIORITY_RETRY_DELAY_MINUTES  || '60', 10) * 60 * 1000;
+const CONFIRM_TIMEOUT_MS     = parseInt(process.env.CONFIRM_TIMEOUT_MINUTES       || '3',  10) * 60 * 1000;
 
 // ===== PATHS (from .env) =====
 const CLAUDE_EXE     = process.env.CLAUDE_EXE     || 'claude';
@@ -311,7 +312,7 @@ function routeToAI(chatId, text) {
                 `\`${matched.join(', ')}\`\n\n` +
                 `진행하시겠습니까?\n` +
                 `*y* — 진행   *n* — 취소\n` +
-                `_(30초 내 응답 없으면 자동 취소)_`,
+                `_(${Math.round(CONFIRM_TIMEOUT_MS / 60000)}분 내 응답 없으면 자동 취소)_`,
                 { parse_mode: 'Markdown' }
             );
             const timer = setTimeout(() => {
@@ -320,7 +321,7 @@ function routeToAI(chatId, text) {
                     console.log('  [보안] 승인 타임아웃 — 자동 취소');
                     bot.sendMessage(chatId, '⏰ 시간 초과 — 작업이 자동 취소되었습니다.');
                 }
-            }, 30000);
+            }, CONFIRM_TIMEOUT_MS);
             pendingApproval = { chatId, text, ai, timer };
             return;
         }

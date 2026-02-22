@@ -276,7 +276,7 @@ CONFIRM_COMMANDS=git push,npm publish,git reset --hard
 봇:      ✅ 승인되었습니다. 작업을 시작합니다…
 ```
 
-30초 내 응답이 없으면 자동 취소됩니다.
+`CONFIRM_TIMEOUT_MINUTES` 설정 시간(기본 3분) 내 응답이 없으면 자동 취소됩니다.
 
 ---
 
@@ -419,14 +419,14 @@ User:  "main에 push 해줘"
 Bot:   🔐 승인 필요
        확인 키워드: git push
        진행하시겠습니까? y — 진행  n — 취소
-       (30초 내 응답 없으면 자동 취소)
+       (`CONFIRM_TIMEOUT_MINUTES`분 내 응답 없으면 자동 취소)
 
 User:  y
 Bot:   ✅ 승인되었습니다. 작업을 시작합니다…
        🧠 Claude Agent 작업 시작…
 ```
 
-> If neither `y` nor `n` is received within 30 seconds, the request is automatically cancelled.
+> If neither `y` nor `n` is received within `CONFIRM_TIMEOUT_MINUTES` minutes (default: 3), the request is automatically cancelled.
 
 ---
 
