@@ -17,7 +17,23 @@ cd AIBotWithTelegram
 npm install
 ```
 
-**Step 2: Create your `.env`**
+**Step 2: Get your Telegram credentials**
+
+**Bot Token** — talk to [@BotFather](https://t.me/BotFather) on Telegram:
+1. Send `/newbot`
+2. Choose a name (e.g. `My Dev Bot`)
+3. Choose a username ending in `bot` (e.g. `mydev_bot`)
+4. BotFather replies with your token: `123456789:AAF...`
+
+**Chat ID** — find your personal chat ID:
+1. Send any message to your new bot
+2. Open this URL in a browser (replace `<TOKEN>` with your token):
+   ```
+   https://api.telegram.org/bot<TOKEN>/getUpdates
+   ```
+3. Look for `"chat":{"id":` in the response — that number is your Chat ID
+
+**Step 3: Create your `.env`**
 ```bash
 cp .env.example .env
 ```
@@ -37,7 +53,7 @@ AI_PROJECT_DIR=D:\YourProject
 ```
 Leave `UPROJECT_PATH` and `ENGINE_PATH` empty or omit them.
 
-**Step 3: Start the bot**
+**Step 4: Start the bot**
 ```
 Double-click  run.bat
 ```
@@ -46,7 +62,7 @@ or manually:
 node index.js
 ```
 
-**Step 4: Send a message on Telegram**
+**Step 5: Send a message on Telegram**
 
 Send any natural language message to your bot. The AI agent will respond and take action.
 
@@ -124,7 +140,23 @@ cd AIBotWithTelegram
 npm install
 ```
 
-**2단계: `.env` 생성**
+**2단계: 텔레그램 인증 정보 준비**
+
+**봇 토큰** — 텔레그램에서 [@BotFather](https://t.me/BotFather)에게 말을 겁니다:
+1. `/newbot` 전송
+2. 봇 이름 입력 (예: `My Dev Bot`)
+3. 봇 아이디 입력 — 반드시 `bot`으로 끝나야 함 (예: `mydev_bot`)
+4. BotFather가 토큰을 전송: `123456789:AAF...`
+
+**채팅 ID** — 내 개인 채팅 ID 확인:
+1. 방금 만든 봇에게 아무 메시지나 전송
+2. 아래 URL을 브라우저에서 열기 (`<TOKEN>` 자리에 발급받은 토큰 입력):
+   ```
+   https://api.telegram.org/bot<TOKEN>/getUpdates
+   ```
+3. 응답 JSON에서 `"chat":{"id":` 뒤에 있는 숫자가 채팅 ID
+
+**3단계: `.env` 생성**
 ```bash
 cp .env.example .env
 ```
@@ -144,7 +176,7 @@ AI_PROJECT_DIR=D:\YourProject
 ```
 `UPROJECT_PATH`와 `ENGINE_PATH`는 비워두거나 생략합니다.
 
-**3단계: 봇 시작**
+**4단계: 봇 시작**
 ```
 run.bat 더블클릭
 ```
@@ -153,7 +185,7 @@ run.bat 더블클릭
 node index.js
 ```
 
-**4단계: 텔레그램에서 메시지 전송**
+**5단계: 텔레그램에서 메시지 전송**
 
 자연어로 무엇이든 보내세요. AI 에이전트가 응답하고 행동합니다.
 
