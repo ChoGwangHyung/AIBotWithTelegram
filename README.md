@@ -17,7 +17,75 @@ cd AIBotWithTelegram
 npm install
 ```
 
-**Step 2: Get your Telegram credentials**
+**Step 2: Install and authenticate AI CLIs**
+
+You only need to set up the AI(s) you plan to use. Claude is recommended as the primary.
+
+---
+
+#### Claude CLI
+
+**Install**
+
+Windows (PowerShell):
+```powershell
+irm https://claude.ai/install.ps1 | iex
+```
+macOS / Linux:
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+**Authenticate — Option A: Account login** (Claude Pro / Max subscription)
+
+Run `claude` once — the first-time wizard opens a browser for OAuth sign-in with your claude.ai account. No extra steps after that.
+
+**Authenticate — Option B: API key** (pay-as-you-go, no subscription needed)
+
+1. Go to [console.anthropic.com](https://console.anthropic.com) → **API Keys** → create a key
+2. When `claude` prompts for an API key on first run, paste it — or set the environment variable:
+   ```bash
+   # Windows PowerShell (permanent)
+   [System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY","sk-ant-...", "User")
+   # macOS / Linux (.bashrc / .zshrc)
+   export ANTHROPIC_API_KEY="sk-ant-..."
+   ```
+
+---
+
+#### Gemini CLI
+
+**Install**
+```bash
+npm install -g @google/gemini-cli
+```
+
+**Authenticate — Option A: Google account login** (free quota available)
+
+Run `gemini` once → select **Login with Google** → browser opens → sign in with your Google account. Done.
+
+**Authenticate — Option B: API key** (Google AI Studio)
+
+1. Go to [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) → **Create API Key**
+2. Set the environment variable:
+   ```bash
+   # Windows PowerShell (permanent)
+   [System.Environment]::SetEnvironmentVariable("GEMINI_API_KEY","AIza...", "User")
+   # macOS / Linux (.bashrc / .zshrc)
+   export GEMINI_API_KEY="AIza..."
+   ```
+
+---
+
+After authenticating, find the CLI paths — you'll need these for `.env`:
+```bash
+where claude    # Windows  →  copy to CLAUDE_EXE
+where gemini    # Windows  →  copy to GEMINI_EXE
+```
+
+---
+
+**Step 3: Get your Telegram credentials**
 
 **Bot Token** — talk to [@BotFather](https://t.me/BotFather) on Telegram:
 1. Send `/newbot`
@@ -33,7 +101,7 @@ npm install
    ```
 3. Look for `"chat":{"id":` in the response — that number is your Chat ID
 
-**Step 3: Create your `.env`**
+**Step 4: Create your `.env`**
 ```bash
 cp .env.example .env
 ```
@@ -53,7 +121,7 @@ AI_PROJECT_DIR=D:\YourProject
 ```
 Leave `UPROJECT_PATH` and `ENGINE_PATH` empty or omit them.
 
-**Step 4: Start the bot**
+**Step 5: Start the bot**
 ```
 Double-click  run.bat
 ```
@@ -62,7 +130,7 @@ or manually:
 node index.js
 ```
 
-**Step 5: Send a message on Telegram**
+**Step 6: Send a message on Telegram**
 
 Send any natural language message to your bot. The AI agent will respond and take action.
 
@@ -78,13 +146,13 @@ Bot:  🧠 Claude Agent 작업 시작…
 
 Complete all steps in Mode 1, then follow these additional steps.
 
-**Step 5: Set UE paths in `.env`**
+**Step 7: Set UE paths in `.env`**
 ```env
 UPROJECT_PATH=D:\YourProject\YourProject.uproject
 ENGINE_PATH=D:\Program Files\Epic Games\UE_5.x\Engine
 ```
 
-**Step 6: Place context files in your project directory (`AI_PROJECT_DIR`)**
+**Step 8: Place context files in your project directory (`AI_PROJECT_DIR`)**
 
 | File | Purpose |
 |------|---------|
@@ -92,7 +160,7 @@ ENGINE_PATH=D:\Program Files\Epic Games\UE_5.x\Engine
 | `GEMINI.md` | Same for Gemini CLI |
 | `TODO.md` | Shared task list — both AIs read this at session start |
 
-**Step 7: (Optional) Set up Unreal MCP for Blueprint editing**
+**Step 9: (Optional) Set up Unreal MCP for Blueprint editing**
 
 Install the [Unreal MCP server](https://github.com/chongdashu/unreal-mcp) plugin into your project. Configure Claude CLI to use it:
 
@@ -107,7 +175,7 @@ Install the [Unreal MCP server](https://github.com/chongdashu/unreal-mcp) plugin
 }
 ```
 
-**Step 8: Use it**
+**Step 10: Use it**
 
 Just send natural language. The AI decides everything — when to build, when to run the editor, when to modify Blueprints.
 
@@ -140,7 +208,79 @@ cd AIBotWithTelegram
 npm install
 ```
 
-**2단계: 텔레그램 인증 정보 준비**
+**2단계: AI CLI 설치 및 인증**
+
+사용할 AI만 설정하면 됩니다. Claude를 기본으로 권장합니다.
+
+---
+
+#### Claude CLI
+
+**설치**
+
+Windows (PowerShell):
+```powershell
+irm https://claude.ai/install.ps1 | iex
+```
+macOS / Linux:
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+**인증 방법 A — 계정 로그인** (Claude Pro / Max 구독 필요)
+
+터미널에서 `claude`를 한 번 실행하면 최초 실행 마법사가 브라우저를 열어 claude.ai 계정으로 OAuth 로그인합니다. 이후 추가 설정 없음.
+
+**인증 방법 B — API 키** (구독 없이 종량제 사용)
+
+1. [console.anthropic.com](https://console.anthropic.com) → **API Keys** → 키 생성
+2. `claude` 최초 실행 시 키 입력 프롬프트에 붙여넣기 — 또는 환경변수로 설정:
+   ```powershell
+   # Windows PowerShell (영구 설정)
+   [System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY","sk-ant-...", "User")
+   ```
+   ```bash
+   # macOS / Linux (.bashrc / .zshrc에 추가)
+   export ANTHROPIC_API_KEY="sk-ant-..."
+   ```
+
+---
+
+#### Gemini CLI
+
+**설치**
+```bash
+npm install -g @google/gemini-cli
+```
+
+**인증 방법 A — Google 계정 로그인** (무료 할당량 제공)
+
+터미널에서 `gemini`를 한 번 실행 → **Login with Google** 선택 → 브라우저에서 Google 계정 로그인. 완료.
+
+**인증 방법 B — API 키** (Google AI Studio)
+
+1. [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) → **Create API Key** → 키 복사
+2. 환경변수로 설정:
+   ```powershell
+   # Windows PowerShell (영구 설정)
+   [System.Environment]::SetEnvironmentVariable("GEMINI_API_KEY","AIza...", "User")
+   ```
+   ```bash
+   # macOS / Linux (.bashrc / .zshrc에 추가)
+   export GEMINI_API_KEY="AIza..."
+   ```
+
+---
+
+인증 완료 후 CLI 경로 확인 — `.env`에 입력할 값입니다:
+```bash
+where claude    # Windows  →  CLAUDE_EXE에 입력
+where gemini    # Windows  →  GEMINI_EXE에 입력
+```
+
+---
+
+**3단계: 텔레그램 인증 정보 준비**
 
 **봇 토큰** — 텔레그램에서 [@BotFather](https://t.me/BotFather)에게 말을 겁니다:
 1. `/newbot` 전송
@@ -156,7 +296,7 @@ npm install
    ```
 3. 응답 JSON에서 `"chat":{"id":` 뒤에 있는 숫자가 채팅 ID
 
-**3단계: `.env` 생성**
+**4단계: `.env` 생성**
 ```bash
 cp .env.example .env
 ```
@@ -176,7 +316,7 @@ AI_PROJECT_DIR=D:\YourProject
 ```
 `UPROJECT_PATH`와 `ENGINE_PATH`는 비워두거나 생략합니다.
 
-**4단계: 봇 시작**
+**5단계: 봇 시작**
 ```
 run.bat 더블클릭
 ```
@@ -185,7 +325,7 @@ run.bat 더블클릭
 node index.js
 ```
 
-**5단계: 텔레그램에서 메시지 전송**
+**6단계: 텔레그램에서 메시지 전송**
 
 자연어로 무엇이든 보내세요. AI 에이전트가 응답하고 행동합니다.
 
@@ -201,13 +341,13 @@ node index.js
 
 모드 1을 완료한 후 아래 단계를 추가로 진행합니다.
 
-**5단계: `.env`에 UE 경로 설정**
+**7단계: `.env`에 UE 경로 설정**
 ```env
 UPROJECT_PATH=D:\YourProject\YourProject.uproject
 ENGINE_PATH=D:\Program Files\Epic Games\UE_5.x\Engine
 ```
 
-**6단계: 프로젝트 디렉터리 (`AI_PROJECT_DIR`)에 컨텍스트 파일 배치**
+**8단계: 프로젝트 디렉터리 (`AI_PROJECT_DIR`)에 컨텍스트 파일 배치**
 
 | 파일 | 용도 |
 |------|------|
@@ -215,7 +355,7 @@ ENGINE_PATH=D:\Program Files\Epic Games\UE_5.x\Engine
 | `GEMINI.md` | Gemini CLI용 동일 내용 |
 | `TODO.md` | 공유 작업 목록 — 모든 AI가 세션 시작 시 읽음 |
 
-**7단계: (선택) Unreal MCP 설정 — 블루프린트 수정**
+**9단계: (선택) Unreal MCP 설정 — 블루프린트 수정**
 
 [Unreal MCP 서버](https://github.com/chongdashu/unreal-mcp) 플러그인을 프로젝트에 설치합니다. Claude CLI에서 사용하도록 설정:
 
@@ -230,7 +370,7 @@ ENGINE_PATH=D:\Program Files\Epic Games\UE_5.x\Engine
 }
 ```
 
-**8단계: 사용**
+**10단계: 사용**
 
 자연어로 보내면 됩니다. AI가 빌드, 에디터 실행, 블루프린트 수정 등 모든 것을 스스로 판단합니다.
 
