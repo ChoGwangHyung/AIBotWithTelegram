@@ -250,6 +250,36 @@ ENGINE_PATH=D:\Program Files\Epic Games\UE_5.x\Engine
 
 ---
 
+### 보안 설정 (선택)
+
+#### BLOCKED_COMMANDS — 절대 실행 금지
+
+`.env`에 위험 명령 패턴을 추가하면, 봇 시작 시 `.claude/settings.local.json`에 deny 규칙으로 자동 등록됩니다. Claude는 해당 명령을 절대 실행하지 않습니다.
+
+```env
+BLOCKED_COMMANDS=rm -rf,del /f /s /q,DROP TABLE,format
+```
+
+#### CONFIRM_COMMANDS — 텔레그램 y/n 승인
+
+특정 키워드가 포함된 메시지는 AI에 전달되기 전에 텔레그램으로 승인 요청을 보냅니다.
+
+```env
+CONFIRM_COMMANDS=git push,npm publish,git reset --hard
+```
+
+```
+사용자:  "main에 push 해줘"
+봇:      🔐 승인 필요 — 확인 키워드: git push
+         진행하시겠습니까? y — 진행  n — 취소
+사용자:  y
+봇:      ✅ 승인되었습니다. 작업을 시작합니다…
+```
+
+30초 내 응답이 없으면 자동 취소됩니다.
+
+---
+
 ## Reference
 
 ### Overview
@@ -360,8 +390,43 @@ AI response signals → Bot executes:
 |--------|--------|
 | Network | Telegram outbound polling only — **no inbound ports opened** |
 | Authentication | Only `AUTHORIZED_CHAT_ID` messages are processed |
-| AI permissions | Claude runs with `--dangerously-skip-permissions`; restrict via `.claude/settings.local.json` deny list |
+| AI permissions | Claude runs with `--dangerously-skip-permissions`; restrict via `BLOCKED_COMMANDS` and `.claude/settings.local.json` deny list |
 | Secrets | Never commit `.env` (included in `.gitignore`) |
+
+#### BLOCKED_COMMANDS — Always Denied
+
+Add dangerous command patterns to `BLOCKED_COMMANDS` in `.env`. The bot registers them as deny rules in `.claude/settings.local.json` at startup. Claude will refuse to execute matching commands and explain why.
+
+```env
+# Claude can never run these, regardless of what the user asks
+BLOCKED_COMMANDS=rm -rf,del /f /s /q,DROP TABLE,format
+```
+
+These are written as `Bash(<pattern>:*)` deny rules into `AI_PROJECT_DIR/.claude/settings.local.json`.
+
+#### CONFIRM_COMMANDS — Telegram y/n Approval
+
+Add keywords to `CONFIRM_COMMANDS`. When a user message contains any of these keywords, the bot asks for approval **before** forwarding to the AI. The AI only runs after explicit `y` confirmation.
+
+```env
+# These keywords in a user message trigger a Telegram y/n prompt
+CONFIRM_COMMANDS=git push,npm publish,git reset --hard
+```
+
+**Flow:**
+```
+User:  "main에 push 해줘"
+Bot:   🔐 승인 필요
+       확인 키워드: git push
+       진행하시겠습니까? y — 진행  n — 취소
+       (30초 내 응답 없으면 자동 취소)
+
+User:  y
+Bot:   ✅ 승인되었습니다. 작업을 시작합니다…
+       🧠 Claude Agent 작업 시작…
+```
+
+> If neither `y` nor `n` is received within 30 seconds, the request is automatically cancelled.
 
 ---
 

@@ -27,6 +27,42 @@ const UBT_BAT        = ENGINE_PATH ? path.join(ENGINE_PATH, 'Build\\BatchFiles\\
 const EDITOR_EXE     = ENGINE_PATH ? path.join(ENGINE_PATH, 'Binaries\\Win64\\UnrealEditor.exe')    : '';
 const HAS_UE         = Boolean(UPROJECT_PATH && ENGINE_PATH);
 
+// ===== SECURITY (from .env) =====
+// BLOCKED_COMMANDS  — 절대 실행 금지. .claude/settings.local.json deny 규칙으로 등록됨
+// CONFIRM_COMMANDS  — 실행 전 Telegram y/n 승인 필요 (쉼표 구분)
+const BLOCKED_COMMANDS = (process.env.BLOCKED_COMMANDS || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+const CONFIRM_COMMANDS = (process.env.CONFIRM_COMMANDS || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+
+// 시작 시 .claude/settings.local.json에 BLOCKED_COMMANDS deny 규칙 등록
+function setupBlockedCommands() {
+    if (BLOCKED_COMMANDS.length === 0) return;
+    const settingsDir  = path.join(AI_PROJECT_DIR, '.claude');
+    const settingsPath = path.join(settingsDir, 'settings.local.json');
+    try {
+        let settings = {};
+        if (fs.existsSync(settingsPath)) {
+            settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        }
+        if (!settings.permissions)       settings.permissions = {};
+        if (!settings.permissions.deny)  settings.permissions.deny = [];
+
+        const existing = new Set(settings.permissions.deny);
+        for (const cmd of BLOCKED_COMMANDS) {
+            existing.add(`Bash(${cmd}:*)`);
+        }
+        settings.permissions.deny = [...existing];
+
+        if (!fs.existsSync(settingsDir)) fs.mkdirSync(settingsDir, { recursive: true });
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+        console.log(`  [보안] 차단 등록 완료: ${BLOCKED_COMMANDS.join(', ')}`);
+    } catch (err) {
+        console.error(`  [보안] settings.local.json 갱신 실패:`, err.message);
+    }
+}
+setupBlockedCommands();
+
 if (!token || !authorizedChatId) {
     console.error("❌ .env에 TELEGRAM_BOT_TOKEN 또는 AUTHORIZED_CHAT_ID가 없습니다!");
     process.exit(1);
@@ -58,6 +94,8 @@ console.log(`  우선순위: ${AI_PRIORITY.join(' → ')}`);
 console.log(`  인증 ID:  ${authorizedChatId}`);
 console.log(`  AI 디렉터리: ${AI_PROJECT_DIR}`);
 console.log(`  UE 기능: ${HAS_UE ? '✅ 활성화' : '⬜ 비활성화 (UPROJECT_PATH / ENGINE_PATH 미설정)'}`);
+console.log(`  차단 명령: ${BLOCKED_COMMANDS.length > 0 ? BLOCKED_COMMANDS.join(', ') : '없음'}`);
+console.log(`  승인 필요: ${CONFIRM_COMMANDS.length > 0 ? CONFIRM_COMMANDS.join(', ') : '없음'}`);
 console.log(`${DIVIDER_FAT}\n`);
 
 // ===== AUTHORIZATION =====
@@ -243,18 +281,52 @@ function getActiveAI() {
     return null;
 }
 
-function routeToAI(chatId, text) {
-    const ai = getActiveAI();
-    if (ai === null) {
-        bot.sendMessage(chatId, "⚠️ 모든 AI가 현재 사용 중이거나 한도 초과 상태입니다. 잠시 후 다시 시도하세요.");
-        return;
-    }
+// ===== 승인 대기 상태 =====
+let pendingApproval = null; // { chatId, text, ai, timer }
+
+function dispatchToAI(chatId, text, ai) {
     printHeader(
         ai === 'claude' ? '🤖 CLAUDE' : '♊ GEMINI',
         `[📨 사용자] ${text}`
     );
     if (ai === 'claude') sendToClaude(chatId, text);
     else sendToGemini(chatId, text, null);
+}
+
+function routeToAI(chatId, text) {
+    const ai = getActiveAI();
+    if (ai === null) {
+        bot.sendMessage(chatId, "⚠️ 모든 AI가 현재 사용 중이거나 한도 초과 상태입니다. 잠시 후 다시 시도하세요.");
+        return;
+    }
+
+    // CONFIRM_COMMANDS 키워드 포함 여부 확인
+    if (CONFIRM_COMMANDS.length > 0) {
+        const matched = CONFIRM_COMMANDS.filter(p => text.toLowerCase().includes(p.toLowerCase()));
+        if (matched.length > 0) {
+            console.log(`  [보안] 승인 요청: ${matched.join(', ')}`);
+            bot.sendMessage(chatId,
+                `🔐 *승인 필요*\n\n` +
+                `아래 키워드가 포함된 작업입니다:\n` +
+                `\`${matched.join(', ')}\`\n\n` +
+                `진행하시겠습니까?\n` +
+                `*y* — 진행   *n* — 취소\n` +
+                `_(30초 내 응답 없으면 자동 취소)_`,
+                { parse_mode: 'Markdown' }
+            );
+            const timer = setTimeout(() => {
+                if (pendingApproval && pendingApproval.chatId === chatId) {
+                    pendingApproval = null;
+                    console.log('  [보안] 승인 타임아웃 — 자동 취소');
+                    bot.sendMessage(chatId, '⏰ 시간 초과 — 작업이 자동 취소되었습니다.');
+                }
+            }, 30000);
+            pendingApproval = { chatId, text, ai, timer };
+            return;
+        }
+    }
+
+    dispatchToAI(chatId, text, ai);
 }
 
 // ===== GEMINI =====
@@ -437,6 +509,26 @@ bot.on('message', (msg) => {
     const lower  = text.toLowerCase();
 
     printHeader('📨 텔레그램 메시지 수신', text);
+
+    // ── 승인 대기 중인 요청 처리
+    if (pendingApproval && pendingApproval.chatId === chatId) {
+        if (lower === 'y' || lower === 'yes') {
+            clearTimeout(pendingApproval.timer);
+            const { text: originalText, ai } = pendingApproval;
+            pendingApproval = null;
+            console.log('  [보안] 승인됨 — AI 실행');
+            bot.sendMessage(chatId, '✅ 승인되었습니다. 작업을 시작합니다…');
+            dispatchToAI(chatId, originalText, ai);
+        } else if (lower === 'n' || lower === 'no') {
+            clearTimeout(pendingApproval.timer);
+            pendingApproval = null;
+            console.log('  [보안] 거부됨 — 작업 취소');
+            bot.sendMessage(chatId, '🚫 작업이 취소되었습니다.');
+        } else {
+            bot.sendMessage(chatId, '⚠️ *y* (진행) 또는 *n* (취소)으로 답해주세요.', { parse_mode: 'Markdown' });
+        }
+        return;
+    }
 
     if (lower === '/start') {
         const aiStatus = AI_PRIORITY.map(ai => {
