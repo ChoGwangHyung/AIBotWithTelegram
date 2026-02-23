@@ -118,6 +118,8 @@ GEMINI_EXE=C:\Users\you\AppData\Roaming\npm\gemini.cmd
 
 # AI working directory — where CLAUDE.md / GEMINI.md / TODO.md live
 AI_PROJECT_DIR=D:\YourProject
+# Comma-separated list of additional directories the AI can access without permission prompts
+AI_ALLOWED_DIRS=D:\YourOtherProject
 ```
 Leave `UPROJECT_PATH` and `ENGINE_PATH` empty or omit them.
 
@@ -130,6 +132,8 @@ or manually:
 node index.js
 ```
 
+> `run.bat` automatically closes any previously opened bot terminal window before launching a new one.
+
 **Step 6: Send a message on Telegram**
 
 Send any natural language message to your bot. The AI agent will respond and take action.
@@ -137,7 +141,10 @@ Send any natural language message to your bot. The AI agent will respond and tak
 ```
 You:  로그인 기능 구현해줘
 Bot:  🧠 Claude Agent 작업 시작…
+      🔧 파일 읽기: AIBLoginWidget.cpp
+      🔧 파일 수정: AIBLoginWidget.h
       (Claude reads your project files, writes code, responds)
+      📊 완료 | ⏱ 47초 | 입력 8,210 토큰 | 출력 1,340 토큰
 ```
 
 ---
@@ -313,6 +320,8 @@ GEMINI_EXE=C:\Users\you\AppData\Roaming\npm\gemini.cmd
 
 # AI 작업 디렉터리 — CLAUDE.md / GEMINI.md / TODO.md가 있는 프로젝트 루트
 AI_PROJECT_DIR=D:\YourProject
+# 권한 요청 없이 추가로 접근 가능한 디렉터리 목록 (쉼표 구성)
+AI_ALLOWED_DIRS=D:\YourOtherProject
 ```
 `UPROJECT_PATH`와 `ENGINE_PATH`는 비워두거나 생략합니다.
 
@@ -325,6 +334,8 @@ run.bat 더블클릭
 node index.js
 ```
 
+> `run.bat`은 이전에 열린 봇 터미널 창을 자동으로 닫고 새 창을 엽니다.
+
 **6단계: 텔레그램에서 메시지 전송**
 
 자연어로 무엇이든 보내세요. AI 에이전트가 응답하고 행동합니다.
@@ -332,7 +343,10 @@ node index.js
 ```
 나:   로그인 기능 구현해줘
 봇:   🧠 Claude Agent 작업 시작…
+      🔧 파일 읽기: AIBLoginWidget.cpp
+      🔧 파일 수정: AIBLoginWidget.h
       (Claude가 프로젝트 파일을 읽고, 코드를 작성하고, 응답)
+      📊 완료 | ⏱ 47초 | 입력 8,210 토큰 | 출력 1,340 토큰
 ```
 
 ---
@@ -390,19 +404,91 @@ ENGINE_PATH=D:\Program Files\Epic Games\UE_5.x\Engine
 
 ---
 
-### 보안 설정 (선택)
+## 기능 상세
+
+### 실시간 진행 상황 전송
+
+Claude가 작업하는 동안 각 도구 사용을 텔레그램으로 즉시 전송하고, 완료 후 통계를 보여줍니다.
+
+```
+🔧 파일 읽기: AIBLoginWidget.cpp
+🔧 내용 검색: AuthorizedChatId
+🔧 파일 수정: AIBLoginWidget.h
+🔧 명령 실행: git status
+
+📊 완료 | ⏱ 1분 23초 | 입력 12,450 토큰 | 출력 1,820 토큰
+```
+
+"reading 1 file..." 같은 Claude Code의 진행 정보가 텔레그램에서 실시간으로 확인됩니다. 실행 시간은 작업 완료 후 합산하여 표시됩니다.
+
+---
+
+### 권한 시스템 (Smart Permission)
+
+`.claude/hooks/permission-handler.js`가 존재하면 자동으로 활성화됩니다. Claude가 특정 작업을 시도할 때 텔레그램으로 허가를 요청합니다.
+
+#### 기본 정책
+
+| 상황 | 처리 |
+|------|------|
+| `AI_PROJECT_DIR` 내부 파일 읽기 / 쓰기 / 수정 | ✅ 자동 허용 |
+| `AI_PROJECT_DIR` **외부** 파일 접근 | 🔑 권한 요청 |
+| `rm`, `del`, `rmdir`, `rd`, `Remove-Item`, `git clean` 등 **삭제 명령** | 🔑 권한 요청 |
+
+#### 권한 요청 메시지 예시
+
+```
+🔑 권한 요청
+
+Claude가 다음 작업을 수행하려 합니다:
+도구: `Bash`
+🗑️ 파일/폴더 삭제 명령
+rm -rf ./temp
+
+허가하시겠습니까?
+1 — 세션 동안 항상 허용
+2 — 이번 한 번만 허용
+3 — 거부
+(3분 내 응답 없으면 자동 거부)
+```
+
+| 응답 | 동작 |
+|------|------|
+| `1` | 세션 동안 같은 도구는 다시 묻지 않음 |
+| `2` | 이번 한 번만 허용 |
+| `3` | 거부 — Claude에게 권한 거부 전달 |
+| 응답 없음 | `CONFIRM_TIMEOUT_MINUTES` 경과 후 자동 거부 |
+
+#### 추가 강제 도구 지정
+
+기본 정책 외에 특정 도구를 **경로와 관계없이 항상** 권한 요청하려면:
+
+```env
+# 예: 웹 요청과 Bash 명령은 항상 허가 요청
+PERMISSION_REQUIRED_TOOLS=WebFetch,Bash
+```
+
+---
+
+### 보안 3단계 레이어
+
+| 레이어 | 설정 | 동작 시점 |
+|--------|------|-----------|
+| **1. 완전 차단** | `BLOCKED_COMMANDS` | 봇 시작 시 `.claude/settings.local.json` deny 규칙 등록 → Claude가 해당 명령 자체를 거부 |
+| **2. 사전 승인** | `CONFIRM_COMMANDS` | 사용자 메시지가 AI에 전달되기 **전** → 텔레그램 y/n 승인 |
+| **3. 런타임 권한** | 훅 시스템 (항상 활성) | Claude가 도구를 **실행하려 할 때** → 텔레그램 1/2/3 승인 |
 
 #### BLOCKED_COMMANDS — 절대 실행 금지
-
-`.env`에 위험 명령 패턴을 추가하면, 봇 시작 시 `.claude/settings.local.json`에 deny 규칙으로 자동 등록됩니다. Claude는 해당 명령을 절대 실행하지 않습니다.
 
 ```env
 BLOCKED_COMMANDS=rm -rf,del /f /s /q,DROP TABLE,format
 ```
 
-#### CONFIRM_COMMANDS — 텔레그램 y/n 승인
+봇 시작 시 `AI_PROJECT_DIR/.claude/settings.local.json`에 deny 규칙으로 자동 등록됩니다.
 
-특정 키워드가 포함된 메시지는 AI에 전달되기 전에 텔레그램으로 승인 요청을 보냅니다.
+#### CONFIRM_COMMANDS — AI 전달 전 사전 승인
+
+특정 키워드가 포함된 요청은 AI에 전달되기 전에 텔레그램으로 y/n을 묻습니다.
 
 ```env
 CONFIRM_COMMANDS=git push,npm publish,git reset --hard
@@ -416,8 +502,6 @@ CONFIRM_COMMANDS=git push,npm publish,git reset --hard
 봇:      ✅ 승인되었습니다. 작업을 시작합니다…
 ```
 
-`CONFIRM_TIMEOUT_MINUTES` 설정 시간(기본 3분) 내 응답이 없으면 자동 취소됩니다.
-
 ---
 
 ## Reference
@@ -429,54 +513,30 @@ AIBotWithTelegram is a Node.js Telegram bot that uses AI agents (Claude / Gemini
 - 🧠 **Natural language commands** — the AI decides what actions to take
 - 🔄 **Automatic AI fallback** — when the primary AI hits its token limit, the bot switches to the next AI with full context handoff
 - 🔗 **Session continuity** — Claude maintains its conversation session across messages
+- 📡 **Live progress** — tool usage sent to Telegram in real time; execution time and token stats on completion
+- 🔑 **Smart permission system** — delete commands and out-of-project file access require Telegram approval
 - 🏗️ **UE build & editor control** — triggered automatically by AI signals (optional)
 - 🎨 **Blueprint editing** — via Unreal MCP server (optional)
 
 ### All `.env` Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | ✅ | Telegram bot token from @BotFather |
-| `AUTHORIZED_CHAT_ID` | ✅ | Only this chat ID can use the bot |
-| `AI_PRIORITY` | ✅ | Comma-separated AI order, e.g. `claude,gemini` |
-| `PRIORITY_RETRY_DELAY_MINUTES` | — | Minutes before retrying primary AI (default: 60) |
-| `CLAUDE_EXE` | ✅ | Path to `claude.exe` CLI |
-| `GEMINI_EXE` | ✅ | Path to `gemini.cmd` CLI |
-| `AI_PROJECT_DIR` | ✅ | Working directory for AI agents (project root) |
-| `UPROJECT_PATH` | UE only | Path to your `.uproject` file |
-| `ENGINE_PATH` | UE only | Unreal Engine root directory |
-
-**Getting your Chat ID**: Send any message to your bot, then visit:
-`https://api.telegram.org/bot<TOKEN>/getUpdates`
-
-**Finding CLI paths:**
-```bash
-where claude    # Windows
-where gemini    # Windows
-```
-
-### Claude Permissions (`.claude/settings.local.json`)
-
-Place this file inside `AI_PROJECT_DIR` to control what Claude can access:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(git:*)",
-      "Bash(node:*)",
-      "Bash(npm:*)"
-    ],
-    "deny": [
-      "Bash(git remote rm:*)",
-      "Bash(git remote remove:*)",
-      "Bash(rm -rf:*)"
-    ]
-  }
-}
-```
-
-The bot runs Claude with `--dangerously-skip-permissions`. Always restrict dangerous operations via the deny list.
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | ✅ | — | Telegram bot token from @BotFather |
+| `AUTHORIZED_CHAT_ID` | ✅ | — | Only this chat ID can use the bot |
+| `AI_PRIORITY` | ✅ | `claude,gemini` | Comma-separated AI order |
+| `PRIORITY_RETRY_DELAY_MINUTES` | — | `60` | Minutes before retrying primary AI after token limit |
+| `CLAUDE_EXE` | ✅ | `claude` | Path to `claude.exe` CLI |
+| `GEMINI_EXE` | ✅ | `gemini` | Path to `gemini.cmd` CLI |
+| `AI_PROJECT_DIR` | ✅ | `cwd` | Working directory for AI agents (project root) |
+| `AI_ALLOWED_DIRS` | — | — | Comma-separated list of additional allowed directories |
+| `BLOCKED_COMMANDS` | — | — | Patterns Claude can never execute (OS-level deny rules) |
+| `CONFIRM_COMMANDS` | — | — | Keywords requiring Telegram y/n approval before AI runs |
+| `CONFIRM_TIMEOUT_MINUTES` | — | `3` | Minutes before pending approval auto-cancels |
+| `PERMISSION_REQUIRED_TOOLS` | — | — | Tools that always require 1/2/3 permission (on top of smart policy) |
+| `PERMISSION_PORT` | — | `8099` | Internal HTTP port for the permission hook server |
+| `UPROJECT_PATH` | UE only | — | Path to your `.uproject` file |
+| `ENGINE_PATH` | UE only | — | Unreal Engine root directory |
 
 ### Bot Commands
 
@@ -505,10 +565,13 @@ AI agents include signals in their responses to trigger follow-up actions:
 ```
 Telegram ──→ Bot Router
               ├─ /start /ping /newsession /setreset  (management)
+              ├─ Pending approval (y/n)   ← CONFIRM_COMMANDS
+              ├─ Pending permission (1/2/3) ← runtime hook
               └─ Everything else → AI Routing  (AI_PRIORITY order)
                    ├─ Claude  (primary)
                    │    ├─ Session continuity  (--resume <session_id>)
-                   │    ├─ stream-json  → real-time terminal output
+                   │    ├─ stream-json  → real-time tool events → Telegram
+                   │    ├─ PreToolUse hook → 1/2/3 approval
                    │    ├─ MCP tools   → Blueprint editing  (optional)
                    │    └─ Token limit  → handoff to next AI
                    └─ Gemini  (fallback)
@@ -520,6 +583,12 @@ AI response signals → Bot executes:
   [RUN_EDITOR_REQUESTED]  → launch editor
   [KILL_EDITOR_REQUESTED] → kill editor
   [GENERATE_REQUESTED]    → regenerate .sln
+
+Permission Hook (always active):
+  Claude tool_use
+    ├─ path inside AI_PROJECT_DIR  → auto-allow
+    ├─ path outside AI_PROJECT_DIR → 1/2/3 prompt
+    └─ delete command              → 1/2/3 prompt
 ```
 
 ### Security
@@ -530,43 +599,22 @@ AI response signals → Bot executes:
 |--------|--------|
 | Network | Telegram outbound polling only — **no inbound ports opened** |
 | Authentication | Only `AUTHORIZED_CHAT_ID` messages are processed |
-| AI permissions | Claude runs with `--dangerously-skip-permissions`; restrict via `BLOCKED_COMMANDS` and `.claude/settings.local.json` deny list |
+| Layer 1 — Blocked | `BLOCKED_COMMANDS` → deny rules in `.claude/settings.local.json` at startup |
+| Layer 2 — Pre-flight | `CONFIRM_COMMANDS` → y/n approval before AI receives the request |
+| Layer 3 — Runtime | PreToolUse hook → 1/2/3 approval when Claude uses a tool |
 | Secrets | Never commit `.env` (included in `.gitignore`) |
 
-#### BLOCKED_COMMANDS — Always Denied
+#### Permission Hook File Structure
 
-Add dangerous command patterns to `BLOCKED_COMMANDS` in `.env`. The bot registers them as deny rules in `.claude/settings.local.json` at startup. Claude will refuse to execute matching commands and explain why.
-
-```env
-# Claude can never run these, regardless of what the user asks
-BLOCKED_COMMANDS=rm -rf,del /f /s /q,DROP TABLE,format
+```
+AIBotWithTelegram/
+├── index.js                          ← HTTP server (port PERMISSION_PORT)
+└── .claude/
+    └── hooks/
+        └── permission-handler.js     ← Hook script (called by Claude Code)
 ```
 
-These are written as `Bash(<pattern>:*)` deny rules into `AI_PROJECT_DIR/.claude/settings.local.json`.
-
-#### CONFIRM_COMMANDS — Telegram y/n Approval
-
-Add keywords to `CONFIRM_COMMANDS`. When a user message contains any of these keywords, the bot asks for approval **before** forwarding to the AI. The AI only runs after explicit `y` confirmation.
-
-```env
-# These keywords in a user message trigger a Telegram y/n prompt
-CONFIRM_COMMANDS=git push,npm publish,git reset --hard
-```
-
-**Flow:**
-```
-User:  "main에 push 해줘"
-Bot:   🔐 승인 필요
-       확인 키워드: git push
-       진행하시겠습니까? y — 진행  n — 취소
-       (`CONFIRM_TIMEOUT_MINUTES`분 내 응답 없으면 자동 취소)
-
-User:  y
-Bot:   ✅ 승인되었습니다. 작업을 시작합니다…
-       🧠 Claude Agent 작업 시작…
-```
-
-> If neither `y` nor `n` is received within `CONFIRM_TIMEOUT_MINUTES` minutes (default: 3), the request is automatically cancelled.
+At startup the bot writes a `PreToolUse` hook entry into `AI_PROJECT_DIR/.claude/settings.json`. When Claude wants to execute a tool, Claude Code calls `permission-handler.js` before every tool use. The script posts to the bot's HTTP server; the bot sends a Telegram message and waits for the user's `1` / `2` / `3` reply.
 
 ---
 

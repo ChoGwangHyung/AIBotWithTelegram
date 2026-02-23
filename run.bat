@@ -1,19 +1,41 @@
 @echo off
 chcp 65001 >nul
-echo [AIBot] 기존 봇 인스턴스 종료 중...
+setlocal enabledelayedexpansion
 
-set PID_FILE=D:\Projects\AIBotWithTelegram\bot.pid
+set "BOT_DIR=D:\Projects\AIBotWithTelegram"
+set "TERM_PID_FILE=%BOT_DIR%\term.pid"
+set "NODE_PID_FILE=%BOT_DIR%\bot.pid"
+set "OLD_TERM_PID="
+set "OLD_NODE_PID="
 
-if exist "%PID_FILE%" (
-    set /p OLD_PID=<"%PID_FILE%"
-    echo   PID %OLD_PID% 종료 시도...
-    taskkill /PID %OLD_PID% /F >nul 2>&1
-    del "%PID_FILE%" >nul 2>&1
-    echo   완료.
-) else (
-    echo   실행 중인 인스턴스 없음.
+echo [AIBot] Stopping old instance...
+
+if exist "%NODE_PID_FILE%" (
+    set /p OLD_NODE_PID=<"%NODE_PID_FILE%"
+)
+if exist "%TERM_PID_FILE%" (
+    set /p OLD_TERM_PID=<"%TERM_PID_FILE%"
 )
 
-timeout /t 1 /nobreak >nul
-echo [AIBot] 봇을 새 터미널에서 시작합니다...
+if defined OLD_TERM_PID (
+    if defined OLD_NODE_PID (
+        tasklist /FI "PID eq !OLD_NODE_PID!" /FO CSV /NH 2>nul | findstr /I "node" >nul 2>&1
+        if not errorlevel 1 (
+            echo   Killing terminal PID=!OLD_TERM_PID! ...
+            taskkill /PID !OLD_TERM_PID! /F /T >nul 2>&1
+            echo   Done.
+        ) else (
+            echo   Old bot already stopped.
+        )
+    ) else (
+        echo   No valid bot PID found.
+    )
+) else (
+    echo   No running terminal found.
+)
+
+del "%TERM_PID_FILE%" >nul 2>&1
+del "%NODE_PID_FILE%" >nul 2>&1
+
+echo [AIBot] Starting bot...
 start "AIBot - Telegram" cmd /k "chcp 65001 >nul && cd /d D:\Projects\AIBotWithTelegram && node index.js"
