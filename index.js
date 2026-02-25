@@ -1,4 +1,11 @@
 require('dotenv').config();
+process.env.NTBA_FIX_350 = 1; // Fix for multipart/form-data
+// Fix for spawn EINVAL in node-telegram-bot-api polling under Node 22+ with proxy
+delete process.env.http_proxy;
+delete process.env.https_proxy;
+delete process.env.HTTP_PROXY;
+delete process.env.HTTPS_PROXY;
+
 const TelegramBot = require('node-telegram-bot-api');
 const { exec, spawn } = require('child_process');
 const path = require('path');
@@ -182,7 +189,7 @@ function setupPermissionHook() {
         return;
     }
 
-    const targets = ['.claude', '.gemini'];
+    const targets = ['.claude'];
     for (const target of targets) {
         const aiDir = path.join(AI_PROJECT_DIR, target);
         const settingsPath = path.join(aiDir, 'settings.json');
@@ -195,15 +202,18 @@ function setupPermissionHook() {
             }
 
             if (!settings.hooks) settings.hooks = {};
-            // 이전 PermissionRequest 훅 제거 (PreToolUse로 교체됨)
+            // 이전 PermissionRequest 훅 제거
             delete settings.hooks.PermissionRequest;
-            settings.hooks.PreToolUse = [{
+
+            const hookEventName = 'PreToolUse';
+
+            settings.hooks[hookEventName] = [{
                 matcher: '*',
                 hooks: [{ type: 'command', command: `node "${hookScriptPath}"` }],
             }];
 
             fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-            console.log(`  [권한] PreToolUse 훅 등록 완료 (${target}) → ${AI_PROJECT_DIR}`);
+            console.log(`  [권한] ${hookEventName} 훅 등록 완료 (${target}) → ${AI_PROJECT_DIR}`);
         } catch (err) {
             console.error(`  [권한] 훅 설정 실패 (${target}):`, err.message);
         }
@@ -316,6 +326,12 @@ const bot = new TelegramBot(token, {
         autoStart: true,
         params: {
             timeout: 10
+        }
+    },
+    request: {
+        agentOptions: {
+            keepAlive: true,
+            family: 4
         }
     }
 });
@@ -616,14 +632,15 @@ function sendToGemini(chatId, originalRequest, partialOutput) {
         : originalRequest;
 
     const args = isHandoff
-        ? ['-y', '--output-format', 'text', '-p',
+        ? ['-y', '--output-format', 'text',
             '위 인수인계 내용을 바탕으로 원래 요청을 이어서 완료해주세요. GEMINI.md와 TODO.md를 참고하세요.']
-        : ['-y', '--output-format', 'text', '-p', originalRequest];
+        : ['-y', '--output-format', 'text', originalRequest];
 
     const geminiProcess = spawn(GEMINI_EXE, args, {
         cwd: AI_PROJECT_DIR,
         stdio: isHandoff ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
-        shell: false,
+        env: { ...process.env, CI: '1' },
+        shell: true,
     });
 
     if (isHandoff) {
