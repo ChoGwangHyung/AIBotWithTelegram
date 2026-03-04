@@ -102,9 +102,9 @@ const MESSAGES = {
     permissionTimeout: '⏰ 시간 초과 — 권한 요청이 자동 거부되었습니다.',
     invalidPermission: '⚠️ *1* (세션 허용), *2* (한 번 허용), *3* (거부)로 답해주세요.',
     claudeStart: (resume) => `🧠 Claude Agent 작업 시작…${resume ? '\n(이전 세션 이어서 진행)' : ''}`,
-    claudeTokenLimit: (min) => `⚠️ Claude 토큰 한도 도달. Gemini로 전환합니다.\n(Claude는 약 ${min}분 후 재시도)`,
+    aiRateLimit: (from, to, min) => `⚠️ ${from} 분당 요청 한도(429) 도달. ${to}로 전환합니다.\n(${from}는 약 ${min}분 후 재시도)`,
     claudeError: (msg) => `❌ Claude 실행 오류: ${msg}`,
-    geminiHandoff: '🔄 Claude 한도 초과 → Gemini로 인수인계합니다...',
+    geminiHandoff: (from) => `🔄 ${from} 한도 초과 → 다음 AI로 인수인계합니다...`,
     geminiStart: '♊ Gemini Agent 작업 시작...',
     geminiError: (msg) => `❌ Gemini 실행 오류: ${msg}`,
     taskDone: (label) => `✅ ${label} 작업 완료.`,
@@ -538,37 +538,51 @@ function formatElapsed(ms) {
     return `${min}분 ${sec}초`;
 }
 
-// ===== 토큰 한도 감지 =====
-const TOKEN_LIMIT_PATTERNS = [
-    /rate[\s_-]?limit/i, /context[\s_-]?window/i, /context[\s_-]?length/i,
-    /max[\s_-]?token/i, /token[\s_-]?limit/i,
-    /overloaded/i, /quota[\s_-]?exceeded/i,
-    /529/, /too[\s_-]?large/i, /prompt[\s_-]?too[\s_-]?long/i,
-];
-function isTokenLimitError(text) {
-    return TOKEN_LIMIT_PATTERNS.some(p => p.test(text));
+// ===== 429 Rate-Limit 감지 =====
+// HTTP 429 / rate_limit_error: 분당 요청 한도 초과 → 다음 AI로 전환
+// HTTP 503 / overloaded: 일시적 서버 과부하 → 전환하지 않음 (Claude 자체 재시도)
+function isRateLimitError(text) {
+    return /rate[_\s-]?limit[_\s-]?error/i.test(text)
+        || /\"type\"\s*:\s*\"rate_limit_error\"/i.test(text)
+        || /429/.test(text);
 }
 
 // ===== AI 상태 =====
 let claudeSessionId = null;
-let claudeLastTokenError = 0;
-let isClaudeRunning = false;
-let isGeminiRunning = false;
+// ai별 마지막 429 발생 시각 (ms)
+const aiLastRateLimit = { claude: 0, gemini: 0 };
+// ai별 실행 중 여부
+const aiRunning = { claude: false, gemini: false };
 
-function isClaudeAvailable() {
-    return Date.now() - claudeLastTokenError >= CLAUDE_RETRY_DELAY_MS;
+function isAIAvailable(ai) {
+    return Date.now() - (aiLastRateLimit[ai] || 0) >= CLAUDE_RETRY_DELAY_MS;
 }
+
+function isClaudeAvailable() { return isAIAvailable('claude'); }
 
 function getActiveAI() {
     for (const ai of AI_PRIORITY) {
-        if (ai === 'claude' && !isClaudeAvailable()) {
-            const remainMin = Math.ceil((CLAUDE_RETRY_DELAY_MS - (Date.now() - claudeLastTokenError)) / 60000);
-            console.log(`  [AI 라우터] Claude 대기 중 (남은 시간 약 ${remainMin}분) → 다음 AI로`);
+        if (!isAIAvailable(ai)) {
+            const remain = aiLastRateLimit[ai] + CLAUDE_RETRY_DELAY_MS - Date.now();
+            const remainMin = Math.ceil(remain / 60000);
+            console.log(`  [AI 라우터] ${ai} 대기 중 (약 ${remainMin}분 남음) → 다음 AI로`);
             continue;
         }
-        if (ai === 'claude' && isClaudeRunning) continue;
-        if (ai === 'gemini' && isGeminiRunning) continue;
+        if (aiRunning[ai]) {
+            console.log(`  [AI 라우터] ${ai} 이미 실행 중 → 다음 AI로`);
+            continue;
+        }
         return ai;
+    }
+    return null;
+}
+
+// 현재 ai 다음 우선순위의 AI를 반환 (없으면 null)
+function getNextAI(currentAi) {
+    const idx = AI_PRIORITY.indexOf(currentAi);
+    for (let i = idx + 1; i < AI_PRIORITY.length; i++) {
+        const next = AI_PRIORITY[i];
+        if (isAIAvailable(next) && !aiRunning[next]) return next;
     }
     return null;
 }
@@ -613,13 +627,27 @@ function routeToAI(chatId, text) {
     dispatchToAI(chatId, text, ai);
 }
 
+// ===== AI 폴백 헬퍼 =====
+// from: 한도 초과된 AI 이름, to: 다음 AI 이름
+function fallbackToAI(chatId, originalRequest, partialOutput, to) {
+    if (to === 'gemini') {
+        sendToGemini(chatId, originalRequest, partialOutput);
+    } else if (to === 'claude') {
+        // Gemini → Claude 폴백인 경우 인수인계 컨텍스트를 텍스트로 붙여서 전달
+        const handoffText = partialOutput
+            ? `[Gemini → Claude 인수인계]\n\n=== 원래 요청 ===\n${originalRequest}\n\n=== Gemini 부분 결과 ===\n${partialOutput.slice(0, 3000)}\n\n위 내용을 바탕으로 원래 요청을 이어서 완료해주세요.`
+            : originalRequest;
+        sendToClaude(chatId, handoffText);
+    }
+}
+
 // ===== GEMINI =====
 function sendToGemini(chatId, originalRequest, partialOutput) {
-    isGeminiRunning = true;
+    aiRunning.gemini = true;
     const isHandoff = partialOutput !== null;
 
     if (isHandoff) {
-        bot.sendMessage(chatId, t('geminiHandoff'));
+        bot.sendMessage(chatId, t('geminiHandoff', 'Claude'));
         printSection('🔄 Gemini 인수인계 시작');
     } else {
         bot.sendMessage(chatId, t('geminiStart'));
@@ -649,27 +677,48 @@ function sendToGemini(chatId, originalRequest, partialOutput) {
     }
 
     let output = "";
+    let geminiStderr = "";
     geminiProcess.stdout.on('data', (d) => {
         const chunk = d.toString();
         output += chunk;
         process.stdout.write(chunk);
     });
-    geminiProcess.stderr.on('data', (d) => { console.error(`  [GEMINI ERR] ${d.toString().trim()}`); });
+    geminiProcess.stderr.on('data', (d) => {
+        const err = d.toString().trim();
+        geminiStderr += err + '\n';
+        console.error(`  [GEMINI ERR] ${err}`);
+    });
     geminiProcess.on('error', (err) => {
-        isGeminiRunning = false;
+        aiRunning.gemini = false;
         bot.sendMessage(chatId, t('geminiError', err.message));
     });
     geminiProcess.on('close', (code) => {
-        isGeminiRunning = false;
+        aiRunning.gemini = false;
         process.stdout.write('\n');
         printSection(`♊ Gemini 완료 (exit ${code})`);
+
+        // 429 Rate-Limit 감지 → 다음 AI 폴백
+        if (code !== 0 && !output.trim() && isRateLimitError(geminiStderr)) {
+            const nextAI = getNextAI('gemini');
+            console.log(`  [⚠️  429 한도] Gemini → ${nextAI ? nextAI + '로 전환' : '폴백 AI 없음'}`);
+            aiLastRateLimit.gemini = Date.now();
+            if (nextAI) {
+                const retryMin = Math.round(CLAUDE_RETRY_DELAY_MS / 60000);
+                bot.sendMessage(chatId, t('aiRateLimit', 'Gemini', nextAI, retryMin));
+                fallbackToAI(chatId, originalRequest, output || null, nextAI);
+            } else {
+                bot.sendMessage(chatId, t('allAIBusy'));
+            }
+            return;
+        }
+
         handleSignals(chatId, output, '♊ Gemini');
     });
 }
 
 // ===== CLAUDE =====
 function sendToClaude(chatId, text) {
-    isClaudeRunning = true;
+    aiRunning.claude = true;
     activeClaudeChatId = chatId;
 
     if (claudeSessionId) {
@@ -701,6 +750,7 @@ function sendToClaude(chatId, text) {
     let lastToolName = "";
     let totalUsage = null;
     let totalCost = null;
+    let isResultError = false;
 
     proc.stdout.on('data', (data) => {
         streamBuf += data.toString();
@@ -756,7 +806,8 @@ function sendToClaude(chatId, text) {
                         claudeSessionId = obj.session_id;
                         console.log(`\n  [💾 세션 저장] ${claudeSessionId.slice(0, 16)}…`);
                     }
-                    if (obj.is_error) stderrText += JSON.stringify(obj) + '\n';
+                    // is_error는 별도 플래그로 추적 (stderrText에 섞지 않음)
+                    if (obj.is_error) isResultError = true;
                     // result 레벨 usage (있을 경우 덮어씀)
                     if (obj.usage) totalUsage = obj.usage;
                     if (obj.total_cost_usd != null) totalCost = obj.total_cost_usd;
@@ -773,25 +824,33 @@ function sendToClaude(chatId, text) {
     });
 
     proc.on('error', (err) => {
-        isClaudeRunning = false;
+        aiRunning.claude = false;
         activeClaudeChatId = null;
         console.error(`  [SPAWN ERR]`, err);
         bot.sendMessage(chatId, t('claudeError', err.message));
     });
 
     proc.on('close', (code) => {
-        isClaudeRunning = false;
+        aiRunning.claude = false;
         activeClaudeChatId = null;
         process.stdout.write('\n');
         printSection(`🤖 Claude 완료 (exit ${code})`);
 
-        // 토큰 한도 감지 → Gemini 폴백 (통계 없이 즉시 전환)
-        if (code !== 0 && isTokenLimitError(stderrText)) {
-            console.log(`  [⚠️  토큰 한도] Gemini로 전환합니다.`);
-            claudeLastTokenError = Date.now();
+        // 429 Rate-Limit 감지 → 다음 AI 폴백
+        // 조건: (비정상 종료 OR result 에러) AND 실제 결과 없음 AND 429 패턴
+        const hasError = code !== 0 || isResultError;
+        if (hasError && !finalResult && isRateLimitError(stderrText)) {
+            const nextAI = getNextAI('claude');
+            console.log(`  [⚠️  429 한도] ${nextAI ? nextAI + '로 전환' : '폴백 AI 없음'}`);
+            aiLastRateLimit.claude = Date.now();
             claudeSessionId = null;
-            bot.sendMessage(chatId, t('claudeTokenLimit', Math.round(CLAUDE_RETRY_DELAY_MS / 60000)));
-            sendToGemini(chatId, text, finalResult);
+            if (nextAI) {
+                const retryMin = Math.round(CLAUDE_RETRY_DELAY_MS / 60000);
+                bot.sendMessage(chatId, t('aiRateLimit', 'Claude', nextAI, retryMin));
+                fallbackToAI(chatId, text, finalResult, nextAI);
+            } else {
+                bot.sendMessage(chatId, t('allAIBusy'));
+            }
             return;
         }
 
@@ -876,23 +935,28 @@ bot.on('message', (msg) => {
     // ── 빌트인 명령어
     if (lower === '/start') {
         const aiStatus = AI_PRIORITY.map(ai => {
-            if (ai === 'claude') return `Claude${isClaudeAvailable() ? ' ✅' : ' ⏳(한도초과)'}`;
-            return `Gemini ✅`;
+            const label = ai === 'claude' ? 'Claude' : 'Gemini';
+            return `${label}${isAIAvailable(ai) ? ' ✅' : ' ⏳(한도초과)'}`;
         }).join(' → ');
         return bot.sendMessage(chatId, t('startMessage', aiStatus, HAS_UE));
     }
 
     if (lower === '/ping') {
-        const remainMin = isClaudeAvailable() ? 0 : Math.ceil((CLAUDE_RETRY_DELAY_MS - (Date.now() - claudeLastTokenError)) / 60000);
-        const claudeStatus = isClaudeAvailable() ? t('claudeAvailable') : t('claudeRateLimit', remainMin);
+        const aiStatusList = AI_PRIORITY.map(ai => {
+            const label = ai === 'claude' ? 'Claude' : 'Gemini';
+            if (isAIAvailable(ai)) return `${label}: ✅ 사용 가능`;
+            const remainMin = Math.ceil((aiLastRateLimit[ai] + CLAUDE_RETRY_DELAY_MS - Date.now()) / 60000);
+            return `${label}: ⏳ 한도초과 (${remainMin}분 후 재시도)`;
+        }).join('\n');
         const sessionInfo = claudeSessionId ? t('sessionActive', claudeSessionId.slice(0, 8)) : t('sessionNone');
-        return bot.sendMessage(chatId, t('pingMessage', claudeStatus, sessionInfo, HAS_UE));
+        return bot.sendMessage(chatId, `🏓 Pong!\n${aiStatusList}\n세션: ${sessionInfo}\nUE 연동: ${HAS_UE ? '✅' : '⬜ 비활성화'}`);
     }
 
     if (lower === '/setreset') {
-        claudeLastTokenError = 0;
+        aiLastRateLimit.claude = 0;
+        aiLastRateLimit.gemini = 0;
         claudeSessionId = null;
-        console.log('  [수동] Claude 토큰 한도 초기화');
+        console.log('  [수동] 모든 AI 토큰 한도 초기화');
         return bot.sendMessage(chatId, t('sessionReset'));
     }
 
